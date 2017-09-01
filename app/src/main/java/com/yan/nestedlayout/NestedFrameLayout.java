@@ -22,7 +22,6 @@ import android.widget.FrameLayout;
 
 public class NestedFrameLayout extends FrameLayout implements NestedScrollingChild, NestedScrollingParent {
     private static final String TAG = "NestedFrameLayout";
-
     private static final int INVALID_POINTER = -1;
 
     private final NestedScrollingChildHelper mChildHelper;
@@ -61,32 +60,33 @@ public class NestedFrameLayout extends FrameLayout implements NestedScrollingChi
     }
 
     protected boolean nestedTouchEvent(MotionEvent ev) {
+        MotionEvent evto = MotionEvent.obtain(ev);
         initVelocityTrackerIfNotExists();
-        final int actionMasked = MotionEventCompat.getActionMasked(ev);
+        final int actionMasked = MotionEventCompat.getActionMasked(evto);
 
         switch (actionMasked) {
             case MotionEvent.ACTION_DOWN: {
-                if (getChildCount() == 0) {
-                    return false;
-                }
-                mLastMotionY = (int) ev.getY();
-                mActivePointerId = ev.getPointerId(0);
+                mVelocityTracker.addMovement(ev);
+
+                mLastMotionY = (int) evto.getY();
+                mActivePointerId = evto.getPointerId(0);
                 startNestedScroll(ViewCompat.SCROLL_AXIS_VERTICAL);
                 break;
             }
             case MotionEvent.ACTION_MOVE:
-                final int activePointerIndex = ev.findPointerIndex(mActivePointerId);
+                final int activePointerIndex = evto.findPointerIndex(mActivePointerId);
                 if (activePointerIndex == -1) {
                     break;
                 }
 
-                final int y = (int) ev.getY(activePointerIndex);
+                final int y = (int) evto.getY(activePointerIndex);
                 int deltaY = mLastMotionY - y;
+
                 if (dispatchNestedPreScroll(0, deltaY, mScrollConsumed, mScrollOffset)) {
                     deltaY -= mScrollConsumed[1];
-                    ev.offsetLocation(0, mScrollOffset[1]);
+                    evto.offsetLocation(0, mScrollOffset[1]);
                 }
-                if (!mIsBeingDragged && Math.abs(deltaY) > mTouchSlop) {
+                if (!mIsBeingDragged && Math.abs(mLastMotionY - y) > mTouchSlop) {
                     final ViewParent parent = getParent();
                     if (parent != null) {
                         parent.requestDisallowInterceptTouchEvent(true);
@@ -100,43 +100,41 @@ public class NestedFrameLayout extends FrameLayout implements NestedScrollingChi
                 }
 
                 if (mIsBeingDragged) {
+                    mVelocityTracker.addMovement(ev);
+
                     mLastMotionY = y - mScrollOffset[1];
                     if (dispatchNestedScroll(0, 0, 0, deltaY, mScrollOffset)) {
                         mLastMotionY -= mScrollOffset[1];
-                        ev.offsetLocation(0, mScrollOffset[1]);
+                        evto.offsetLocation(0, mScrollOffset[1]);
                     }
                 }
                 break;
             case MotionEvent.ACTION_CANCEL:
             case MotionEvent.ACTION_UP:
                 if (mIsBeingDragged) {
-                    final VelocityTracker velocityTracker = mVelocityTracker;
-                    velocityTracker.computeCurrentVelocity(1000, mMaximumVelocity);
-                    int initialVelocity = (int) VelocityTrackerCompat.getYVelocity(velocityTracker,
-                            mActivePointerId);
+                    mVelocityTracker.computeCurrentVelocity(1000, mMaximumVelocity);
+                    int initialVelocity = (int) VelocityTrackerCompat.getYVelocity(mVelocityTracker, mActivePointerId);
 
                     if ((Math.abs(initialVelocity) > mMinimumVelocity)) {
-                        flingWithNestedDispatch(-initialVelocity);
+                        flingWithNestedDispatch(-initialVelocity)  ;
                     }
                 }
                 mActivePointerId = INVALID_POINTER;
                 endDrag();
                 break;
             case MotionEventCompat.ACTION_POINTER_DOWN: {
-                final int index = MotionEventCompat.getActionIndex(ev);
-                mLastMotionY = (int) ev.getY(index);
-                mActivePointerId = ev.getPointerId(index);
+                final int index = MotionEventCompat.getActionIndex(evto);
+                mLastMotionY = (int) evto.getY(index);
+                mActivePointerId = evto.getPointerId(index);
                 break;
             }
             case MotionEventCompat.ACTION_POINTER_UP:
-                onSecondaryPointerUp(ev);
-                mLastMotionY = (int) ev.getY(ev.findPointerIndex(mActivePointerId));
+                onSecondaryPointerUp(evto);
+                mLastMotionY = (int) evto.getY(evto.findPointerIndex(mActivePointerId));
                 break;
         }
 
-        if (mVelocityTracker != null) {
-            mVelocityTracker.addMovement(ev);
-        }
+        evto.recycle();
         return true;
     }
 
@@ -170,8 +168,8 @@ public class NestedFrameLayout extends FrameLayout implements NestedScrollingChi
     }
 
     private void flingWithNestedDispatch(int velocityY) {
-        if ( dispatchNestedPreFling(0, velocityY)) {
-            dispatchNestedFling(0, velocityY, false);
+        if (!dispatchNestedPreFling(0, velocityY)) {
+            dispatchNestedFling(0, velocityY, true);
         }
     }
 
