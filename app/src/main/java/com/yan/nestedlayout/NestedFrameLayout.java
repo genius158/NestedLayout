@@ -9,7 +9,6 @@ import android.support.v4.view.NestedScrollingParentHelper;
 import android.support.v4.view.VelocityTrackerCompat;
 import android.support.v4.view.ViewCompat;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
@@ -32,9 +31,13 @@ public class NestedFrameLayout extends FrameLayout implements NestedScrollingChi
     private final int[] mScrollOffset = new int[2];
 
     private final float mTouchSlop;
+    private final float mMaximumVelocity;
+    private final float mMinimumVelocity;
 
     private int mLastMotionY;
     private int mActivePointerId;
+
+    private VelocityTracker mVelocityTracker;
 
     private boolean mIsBeingDragged;
 
@@ -53,9 +56,12 @@ public class NestedFrameLayout extends FrameLayout implements NestedScrollingChi
         mParentHelper = new NestedScrollingParentHelper(this);
         setNestedScrollingEnabled(true);
         mTouchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+        mMaximumVelocity = ViewConfiguration.get(getContext()).getScaledMaximumFlingVelocity();
+        mMinimumVelocity = ViewConfiguration.get(getContext()).getScaledMinimumFlingVelocity();
     }
 
     protected boolean nestedTouchEvent(MotionEvent ev) {
+        initVelocityTrackerIfNotExists();
         final int actionMasked = MotionEventCompat.getActionMasked(ev);
 
         switch (actionMasked) {
@@ -103,6 +109,16 @@ public class NestedFrameLayout extends FrameLayout implements NestedScrollingChi
                 break;
             case MotionEvent.ACTION_CANCEL:
             case MotionEvent.ACTION_UP:
+                if (mIsBeingDragged) {
+                    final VelocityTracker velocityTracker = mVelocityTracker;
+                    velocityTracker.computeCurrentVelocity(1000, mMaximumVelocity);
+                    int initialVelocity = (int) VelocityTrackerCompat.getYVelocity(velocityTracker,
+                            mActivePointerId);
+
+                    if ((Math.abs(initialVelocity) > mMinimumVelocity)) {
+                        flingWithNestedDispatch(-initialVelocity);
+                    }
+                }
                 mActivePointerId = INVALID_POINTER;
                 endDrag();
                 break;
@@ -118,6 +134,9 @@ public class NestedFrameLayout extends FrameLayout implements NestedScrollingChi
                 break;
         }
 
+        if (mVelocityTracker != null) {
+            mVelocityTracker.addMovement(ev);
+        }
         return true;
     }
 
@@ -138,22 +157,42 @@ public class NestedFrameLayout extends FrameLayout implements NestedScrollingChi
             final int newPointerIndex = pointerIndex == 0 ? 1 : 0;
             mLastMotionY = (int) ev.getY(newPointerIndex);
             mActivePointerId = ev.getPointerId(newPointerIndex);
+            if (mVelocityTracker != null) {
+                mVelocityTracker.clear();
+            }
         }
     }
 
     private void endDrag() {
         mIsBeingDragged = false;
+        recycleVelocityTracker();
         stopNestedScroll();
     }
 
     private void flingWithNestedDispatch(int velocityY) {
-        if (!dispatchNestedPreFling(0, velocityY)) {
+        if ( dispatchNestedPreFling(0, velocityY)) {
             dispatchNestedFling(0, velocityY, false);
+        }
+    }
+
+    private void initVelocityTrackerIfNotExists() {
+        if (mVelocityTracker == null) {
+            mVelocityTracker = VelocityTracker.obtain();
+        }
+    }
+
+    private void recycleVelocityTracker() {
+        if (mVelocityTracker != null) {
+            mVelocityTracker.recycle();
+            mVelocityTracker = null;
         }
     }
 
     @Override
     public void requestDisallowInterceptTouchEvent(boolean disallowIntercept) {
+        if (disallowIntercept) {
+            recycleVelocityTracker();
+        }
         super.requestDisallowInterceptTouchEvent(disallowIntercept);
     }
 
@@ -236,11 +275,7 @@ public class NestedFrameLayout extends FrameLayout implements NestedScrollingChi
 
     @Override
     public boolean onNestedFling(View target, float velocityX, float velocityY, boolean consumed) {
-        if (!consumed) {
-            flingWithNestedDispatch((int) velocityY);
-            return true;
-        }
-        return false;
+        return dispatchNestedFling(velocityX, velocityY, consumed);
     }
 
     @Override

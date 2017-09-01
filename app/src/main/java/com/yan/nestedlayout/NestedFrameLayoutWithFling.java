@@ -275,11 +275,7 @@ public class NestedFrameLayoutWithFling extends FrameLayout implements NestedScr
 
     @Override
     public boolean onNestedFling(View target, float velocityX, float velocityY, boolean consumed) {
-        if (!consumed) {
-            flingWithNestedDispatch((int) velocityY);
-            return true;
-        }
-        return false;
+        return dispatchNestedFling(velocityX, velocityY, consumed);
     }
 
     @Override
